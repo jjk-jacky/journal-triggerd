@@ -53,11 +53,10 @@ enum
 
 enum
 {
-    TYPE_MATCH = 1,
-    TYPE_NOT_MATCH,     /* '!' */
-    TYPE_PATTERN,       /* '?' */
-    TYPE_LESSER_THAN,   /* '<' */
-    TYPE_GREATER_THAN,  /* '>' */
+    TYPE_MATCH          = '=',
+    TYPE_PATTERN        = '?',
+    TYPE_LESSER_THAN    = '<',
+    TYPE_GREATER_THAN   = '>',
 };
 
 enum
@@ -72,10 +71,19 @@ enum
     COMP_GREATER
 };
 
+struct key
+{
+    gchar   *name;
+    gchar    type;
+    gboolean is_not;
+    gchar   *value;
+};
+
 struct cond
 {
-    guint type;
-    gchar *field;
+    gchar    type;
+    gboolean is_not;
+    gchar   *field;
     gpointer data;
 };
 
@@ -126,7 +134,7 @@ free_filter (struct filter *filter)
     {
         struct cond *c = &filter->cond[i];
         g_free (c->field);
-        if (c->type == TYPE_MATCH || c->type == TYPE_NOT_MATCH)
+        if (c->type == TYPE_MATCH)
             g_free (c->data);
         else if (c->type == TYPE_PATTERN)
             g_pattern_spec_free (c->data);
@@ -192,14 +200,52 @@ sig_handler (gint sig)
     exit (RC_SUCCESS);
 }
 
+static void
+free_ptrarr (GPtrArray *ptrarr)
+{
+    guint i;
+
+    for (i = 1; i < ptrarr->len; i += 2)
+        g_array_free (ptrarr->pdata[i + 1], TRUE);
+    g_free (ptrarr->pdata[0]);
+    g_ptr_array_unref (ptrarr);
+}
+
+static GArray *
+get_section (GPtrArray *ptrarr, const gchar *section)
+{
+    guint i;
+
+    for (i = 1; i < ptrarr->len; i += 2)
+        if (streq (ptrarr->pdata[i], section))
+            return ptrarr->pdata[i + 1];
+    return NULL;
+}
+
+static struct key *
+get_key (GArray *arr, const gchar *key)
+{
+    guint i;
+
+    for (i = 0; i < arr->len; ++i)
+    {
+        struct key *k;
+
+        k = &g_array_index (arr, struct key, i);
+        if (streq (k->name, key))
+            return k;
+    }
+    return NULL;
+}
+
 static struct filter *
-parse_filter (GHashTable **ht, GKeyFile *kf, gchar **filter, GError **error)
+parse_filter (GHashTable **ht, GPtrArray *ptrarr, gchar **filter, GError **error)
 {
     struct filter *f;
-    gchar **keys;
+    GArray *arr;
     gchar *s;
     gchar c = 0;
-    gsize nb;
+    guint i;
 
     for (s = *filter; *s != '\0' && !isblank (*s); ++s)
         ;
@@ -222,7 +268,8 @@ parse_filter (GHashTable **ht, GKeyFile *kf, gchar **filter, GError **error)
         }
     }
 
-    if (!g_key_file_has_group (kf, *filter))
+    arr = get_section (ptrarr, *filter);
+    if (!arr)
     {
         g_set_error (error, JT_ERROR, JT_ERROR_MISC,
                 "Filter '%s' not found", *filter);
@@ -231,59 +278,43 @@ parse_filter (GHashTable **ht, GKeyFile *kf, gchar **filter, GError **error)
         return NULL;
     }
 
-    keys = g_key_file_get_keys (kf, *filter, &nb, NULL);
-    if (nb == 0)
+    if (arr->len == 0)
     {
         g_set_error (error, JT_ERROR, JT_ERROR_MISC,
                 "Filter '%s' has no conditions set", *filter);
         if (c)
             *s = c;
-        g_strfreev (keys);
         return NULL;
     }
 
-    f = g_malloc0 (sizeof (guint) * 2 + sizeof (struct cond) * nb);
+    f = g_malloc0 (sizeof (guint) * 2 + sizeof (struct cond) * arr->len);
     f->ref = 1;
-    f->nb = nb;
+    f->nb = arr->len;
 
-    for (nb = 0; keys[nb]; ++nb)
+    for (i = 0; i < arr->len; ++i)
     {
-        struct cond *cond = &f->cond[nb];
-        gsize len;
-        gchar *s;
+        struct key *k;
+        struct cond *cond = &f->cond[i];
 
-        len = strlen (keys[nb]) - 1;
-        s = g_key_file_get_value (kf, *filter, keys[nb], NULL);
-
-        switch (keys[nb][len])
+        k = &g_array_index (arr, struct key, i);
+        cond->type = k->type;
+        cond->is_not = k->is_not;
+        cond->field = g_strdup (k->name);
+        switch (k->type)
         {
-            case '!':
-                cond->type = TYPE_NOT_MATCH;
-                keys[nb][len] = '\0';
+            case TYPE_MATCH:
+                cond->data  = g_strdup (k->value);
                 break;
 
-            case '<':
-            case '>':
-                cond->type = (keys[nb][len] == '<') ? TYPE_LESSER_THAN : TYPE_GREATER_THAN;
-                cond->data  = GINT_TO_POINTER (g_ascii_strtoll (s, NULL, 10));
-                keys[nb][len] = '\0';
-                cond->field = keys[nb];
+            case TYPE_PATTERN:
+                cond->data = g_pattern_spec_new (k->value);
                 continue;
 
-            case '?':
-                cond->type = TYPE_PATTERN;
-                cond->data = g_pattern_spec_new (s);
-                keys[nb][len] = '\0';
-                cond->field = keys[nb];
+            case TYPE_LESSER_THAN:
+            case TYPE_GREATER_THAN:
+                cond->data  = GINT_TO_POINTER (g_ascii_strtoll (k->value, NULL, 10));
                 continue;
-
-            default:
-                cond->type = TYPE_MATCH;
-                break;
         }
-
-        cond->field = keys[nb];
-        cond->data  = s;
     }
 
     if (!*ht)
@@ -293,12 +324,11 @@ parse_filter (GHashTable **ht, GKeyFile *kf, gchar **filter, GError **error)
     *filter = s;
     if (c)
         *s = c;
-    g_free (keys);
     return f;
 }
 
 static struct element *
-parse_element (GHashTable **ht, GKeyFile *kf, gchar **filter, GError **error)
+parse_element (GHashTable **ht, GPtrArray *ptrarr, gchar **filter, GError **error)
 {
     struct element *first_element = NULL;
     struct element *last_element = NULL;
@@ -370,14 +400,14 @@ parse_element (GHashTable **ht, GKeyFile *kf, gchar **filter, GError **error)
 
             /* parse the string within parenthesis */
             *f = '\0';
-            element->data = parse_element (ht, kf, &s, error);
+            element->data = parse_element (ht, ptrarr, &s, error);
             *f = ')';
             f = s + 1;
         }
         else
         {
             element->is_filter = TRUE;
-            element->data = parse_filter (ht, kf, &f, error);
+            element->data = parse_filter (ht, ptrarr, &f, error);
         }
 
         if (!element->data)
@@ -408,6 +438,124 @@ undo:
     return NULL;
 }
 
+static GPtrArray *
+load_rule_file (const gchar *file, GError **error)
+{
+    GPtrArray *ptrarr;
+    GArray *arr = NULL;
+    gchar *data;
+    gchar *e;
+    guint ln = 0;
+    gboolean in_section = FALSE;
+
+    if (!g_file_get_contents (file, &data, NULL, error))
+        return NULL;
+
+    ptrarr = g_ptr_array_new ();
+    g_ptr_array_add (ptrarr, data);
+
+    for (;;)
+    {
+        struct key key;
+        gchar *s;
+
+        ++ln;
+        e = strchr (data, '\n');
+        if (e)
+            *e = '\0';
+
+        if (*data == '#' || e == data || *data == '\0')
+            goto next;
+
+        if (*data == '[')
+        {
+            s = strchr (data, ']');
+            if (!s)
+            {
+                g_set_error (error, JT_ERROR, JT_ERROR_MISC,
+                        "Syntax error in '%s' line %d: Missing end-of-section",
+                        file, ln);
+                free_ptrarr (ptrarr);
+                return NULL;
+            }
+
+            *s = '\0';
+            g_ptr_array_add (ptrarr, data + 1);
+            in_section = TRUE;
+
+            arr = g_array_new (FALSE, FALSE, sizeof (struct key));
+            g_ptr_array_add (ptrarr, arr);
+
+            goto next;
+        }
+        else if (!in_section)
+        {
+            g_set_error (error, JT_ERROR, JT_ERROR_MISC,
+                    "Syntax error in '%s' line %d: Expected section",
+                    file, ln);
+            free_ptrarr (ptrarr);
+            return NULL;
+        }
+
+        s = strchr (data, '=');
+        if (!s)
+        {
+            g_set_error (error, JT_ERROR, JT_ERROR_MISC,
+                    "Syntax error in '%s' line %d: Missing '=' after key",
+                    file, ln);
+            free_ptrarr (ptrarr);
+            return NULL;
+        }
+        else if (s + 1 == e)
+        {
+            g_set_error (error, JT_ERROR, JT_ERROR_MISC,
+                    "Syntax error in '%s' line %d: Missing value",
+                    file, ln);
+            free_ptrarr (ptrarr);
+            return NULL;
+        }
+
+        key.value = s;
+        switch (s[-1])
+        {
+            case TYPE_MATCH:
+            case TYPE_PATTERN:
+            case TYPE_LESSER_THAN:
+            case TYPE_GREATER_THAN:
+                key.type = *--s;
+                break;
+
+            default:
+                key.type = TYPE_MATCH;
+                break;
+        }
+
+        key.is_not = (s[-1] == '!');
+        if (key.is_not)
+            --s;
+
+        for (--s; isblank (*s); --s)
+            ;
+        ++s;
+
+        *s = '\0';
+        key.name = data;
+
+        s = key.value + 1;
+        skip_blank (s);
+        key.value = s;
+
+        g_array_append_val (arr, key);
+
+next:
+        if (!e)
+            break;
+        data = e + 1;
+    }
+
+    return ptrarr;
+}
+
 static struct rule *
 load_rules (const gchar *path, GError **error)
 {
@@ -436,78 +584,98 @@ load_rules (const gchar *path, GError **error)
 
     while ((file = g_dir_read_name (dir)))
     {
-        GKeyFile *kf;
-        gchar **keys;
-        gchar **key;
-        size_t l;
+        GPtrArray *ptrarr;
+        GArray *arr;
         gboolean filter_done = FALSE;
+        size_t l;
+        guint i;
 
         l = strlen (file);
         if (l < 5 || !streq (file + l - 5, ".rule"))
             continue;
 
         strcpy (filename + len, file);
-        kf = g_key_file_new ();
-        if (!g_key_file_load_from_file (kf, filename, G_KEY_FILE_NONE, error))
+        ptrarr = load_rule_file (filename, error);
+        if (!ptrarr)
         {
-            g_key_file_unref (kf);
             g_free (filename);
             g_array_unref (rules);
             g_dir_close (dir);
             return NULL;
         }
 
-        if (!g_key_file_has_group (kf, "Rule"))
+        arr = get_section (ptrarr, "Rule");
+        if (!arr)
         {
             g_set_error (error, JT_ERROR, JT_ERROR_MISC,
                     "Syntax error in '%s': Section 'Rule' missing",
                     filename);
-            g_key_file_unref (kf);
+            free_ptrarr (ptrarr);
             g_free (filename);
             g_array_unref (rules);
             g_dir_close (dir);
             return NULL;
         }
 
-        keys = g_key_file_get_keys (kf, "Rule", NULL, NULL);
-        for (key = keys; *key; ++key)
+        for (i = 0; i < arr->len; ++i)
         {
-            if (streqn (*key, "filter", 6))
+            struct key *k;
+
+            k = &g_array_index (arr, struct key, i);
+
+            if (streqn (k->name, "filter", 6))
             {
                 struct rule rule = { NULL, };
                 gchar *filter;
                 gchar *s;
 
-                if ((*key)[6] == '\0')
+                filter = k->value;
+
+                if ((k->name)[6] == '\0')
                     s = (gchar *) "trigger";
                 else
-                    s = g_strdup_printf ("trigger%s", *key + 6);
+                    s = g_strdup_printf ("trigger%s", k->name + 6);
 
-                if (!g_key_file_has_key (kf, "Rule", s, NULL))
+                k = get_key (arr, s);
+                if (!k)
                 {
                     g_set_error (error, JT_ERROR, JT_ERROR_MISC,
                             "Syntax error in '%s': no matching '%s' for '%s'",
-                            filename, s, *key);
-                    if ((*key)[6] != '\0')
+                            filename, s, k->name);
+                    if ((k->name)[6] != '\0')
                         g_free (s);
-                    g_key_file_unref (kf);
+                    free_ptrarr (ptrarr);
                     g_free (filename);
                     g_array_unref (rules);
                     g_dir_close (dir);
                     return NULL;
                 }
 
-                rule.trigger = g_key_file_get_value (kf, "Rule", s, NULL);
-                if ((*key)[6] != '\0')
+                if (k->type != TYPE_MATCH)
+                {
+                    g_set_error (error, JT_ERROR, JT_ERROR_MISC,
+                            "Syntax error in '%s': option '%s' with invalid type",
+                            filename, s);
+                    if ((k->name)[6] != '\0')
+                        g_free (s);
+                    free_ptrarr (ptrarr);
+                    g_free (filename);
+                    g_array_unref (rules);
+                    g_dir_close (dir);
+                    return NULL;
+                }
+
+                rule.trigger = g_strdup (k->value);
+                if ((k->name)[6] != '\0')
                     g_free (s);
-                s = filter = g_key_file_get_value (kf, "Rule", *key, NULL);
-                rule.element = parse_element (&ht, kf, &s, error);
+                s = filter = g_strdup (filter);
+                rule.element = parse_element (&ht, ptrarr, &s, error);
                 if (!rule.element)
                 {
                     g_prefix_error (error, "Error in '%s': ", filename);
                     g_free (rule.trigger);
                     g_free (filter);
-                    g_key_file_unref (kf);
+                    free_ptrarr (ptrarr);
                     g_free (filename);
                     g_array_unref (rules);
                     g_dir_close (dir);
@@ -517,36 +685,38 @@ load_rules (const gchar *path, GError **error)
 
                 g_array_append_val (rules, rule);
 
-                if ((*key)[6] == '\0')
+                if ((k->name)[6] == '\0')
                     filter_done = TRUE;
             }
-            else if (streqn (*key, "trigger", 7))
+            else if (streqn (k->name, "trigger", 7))
             {
-                if (!filter_done && (*key)[7] == '\0')
+                if (!filter_done && (k->name)[7] == '\0')
                 {
                     struct rule rule = { NULL, };
                     gchar *s;
 
-                    if (!g_key_file_has_group (kf, "Filter"))
+                    s = k->value;
+
+                    if (!get_section (ptrarr, "Filter"))
                     {
                         g_set_error (error, JT_ERROR, JT_ERROR_MISC,
                                 "Missing section 'Filter' in '%s'",
                                 filename);
-                        g_key_file_unref (kf);
+                        free_ptrarr (ptrarr);
                         g_free (filename);
                         g_array_unref (rules);
                         g_dir_close (dir);
                         return NULL;
                     }
 
-                    rule.trigger = g_key_file_get_value (kf, "Rule", "trigger", NULL);
+                    rule.trigger = g_strdup (s);
                     s = "Filter";
-                    rule.element = parse_element (&ht, kf, &s, error);
+                    rule.element = parse_element (&ht, ptrarr, &s, error);
                     if (!rule.element)
                     {
                         g_prefix_error (error, "Error in '%s': ", filename);
                         g_free (rule.trigger);
-                        g_key_file_unref (kf);
+                        free_ptrarr (ptrarr);
                         g_free (filename);
                         g_array_unref (rules);
                         g_dir_close (dir);
@@ -560,35 +730,22 @@ load_rules (const gchar *path, GError **error)
             {
                 g_set_error (error, JT_ERROR, JT_ERROR_MISC,
                         "Syntax error in '%s': Unknown option '%s' in 'Rule'",
-                        filename, *key);
-                g_key_file_unref (kf);
+                        filename, k->name);
+                free_ptrarr (ptrarr);
                 g_free (filename);
                 g_array_unref (rules);
                 g_dir_close (dir);
                 return NULL;
             }
         }
-        g_strfreev (keys);
 
-        g_key_file_unref (kf);
+        free_ptrarr (ptrarr);
         if (ht)
             g_hash_table_remove_all (ht);
     }
 
     if (ht)
         g_hash_table_unref (ht);
-
-    if (errno != 0)
-    {
-        gint _errno = errno;
-        g_set_error (error, JT_ERROR, JT_ERROR_MISC,
-                "Error while reading directory '%s': %s",
-                path, g_strerror (_errno));
-        g_free (filename);
-        g_array_unref (rules);
-        g_dir_close (dir);
-        return NULL;
-    }
 
     g_free (filename);
     g_dir_close (dir);
@@ -620,6 +777,7 @@ is_filter_matching (struct filter *filter, GError **error)
     for (i = 0; i < filter->nb; ++i)
     {
         struct cond *cond = &filter->cond[i];
+        gboolean match = FALSE;
         const gchar *field;
         size_t len;
         gint r;
@@ -640,46 +798,37 @@ is_filter_matching (struct filter *filter, GError **error)
         switch (cond->type)
         {
             case TYPE_MATCH:
-                if (strlen (cond->data) != len
-                        || !streqn (cond->data, field, len))
-                    return FALSE;
-                break;
-
-            case TYPE_NOT_MATCH:
-                if (strlen (cond->data) == len
-                        && streqn (cond->data, field, len))
-                    return FALSE;
+                match = (strlen (cond->data) == len
+                        && streqn (cond->data, field, len));
                 break;
 
             case TYPE_LESSER_THAN:
             case TYPE_GREATER_THAN:
                 {
                     gchar buf[32], *b = buf;
-                    gboolean m;
 
                     if (len >= 32)
                         b = g_new (gchar, len + 1);
                     memcpy (b, field, len);
                     b[len] = '\0';
                     if (cond->type == TYPE_LESSER_THAN)
-                        m = g_ascii_strtoll (field, NULL, 10) <= GPOINTER_TO_INT (cond->data);
+                        match = g_ascii_strtoll (b, NULL, 10) <= GPOINTER_TO_INT (cond->data);
                     else
-                        m = g_ascii_strtoll (field, NULL, 10) >= GPOINTER_TO_INT (cond->data);
+                        match = g_ascii_strtoll (b, NULL, 10) >= GPOINTER_TO_INT (cond->data);
                     if (b != buf)
                         g_free (b);
-                    if (!m)
-                        return FALSE;
                 }
                 break;
 
             case TYPE_PATTERN:
-                if (!g_pattern_match (cond->data, len, field, NULL))
-                    return FALSE;
+                match = g_pattern_match (cond->data, len, field, NULL);
                 break;
-
-            default:
-                return FALSE;
         }
+
+        if (cond->is_not)
+            match = !match;
+        if (!match)
+            return FALSE;
     }
 
     return TRUE;
