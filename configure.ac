@@ -21,6 +21,12 @@ AC_ARG_WITH([rulesdir],
             [],
             [with_rulesdir=/etc/journal-triggerd.rules])
 
+# service file location
+AC_ARG_WITH([servicedir],
+            AC_HELP_STRING([--with-systemd-servicedir=DIR], [Directory for .service file]),
+            [],
+            [with_servicedir=/usr/lib/systemd/system])
+
 # Option to use git version
 AC_ARG_ENABLE([git-version],
               AS_HELP_STRING([--enable-git-version], [enable the use of git
@@ -117,6 +123,7 @@ else
 fi
 
 AC_SUBST([rulesdir], [$with_rulesdir])
+AC_SUBST([servicedir], [$with_servicedir])
 
 AC_CONFIG_FILES([Makefile])
 
@@ -127,6 +134,7 @@ AC_MSG_RESULT([
  Build information:
     source code location        : ${srcdir}
     prefix                      : ${prefix}
+    service file location       : ${with_servicedir}
     rules location              : ${with_rulesdir}
 
  Install paths:

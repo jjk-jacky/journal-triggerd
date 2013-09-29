@@ -1,10 +1,11 @@
 DISTCLEANFILES = \
-	doc/journal-triggerd.1 \
-	doc/index.html
+	journal-triggerd.1 \
+	index.html
 
 ACLOCAL_AMFLAGS = -I m4
 
 rulesdir=@rulesdir@
+servicedir=@servicedir@
 
 if USE_GIT_VERSION
 _VERSION = `git describe --abbrev=4 --dirty`
@@ -33,6 +34,8 @@ dist_doc_DATA = index.html \
 				COPYING \
 				README.md
 
+dist_service_DATA = journal-triggerd.service
+
 EXTRA_DIST = \
 	journal-triggerd.pod
 
@@ -44,6 +47,6 @@ index.html: journal-triggerd.1
 	$(AM_V_GEN)groff -T html -man journal-triggerd.1 > index.html
 
 install-data-hook:
-	mkdir "$(DESTDIR)$(docdir)/html"
+	$(MKDIR_P) "$(DESTDIR)$(docdir)/html"
 	mv "$(DESTDIR)$(docdir)/index.html" "$(DESTDIR)$(docdir)/html/"
 	$(MKDIR_P) "$(DESTDIR)$(rulesdir)"
