@@ -626,6 +626,7 @@ load_rules (const gchar *path, GError **error)
             if (streqn (k->name, "filter", 6))
             {
                 struct rule rule = { NULL, };
+                struct key *key;
                 gchar *filter;
                 gchar *s;
 
@@ -636,8 +637,8 @@ load_rules (const gchar *path, GError **error)
                 else
                     s = g_strdup_printf ("trigger%s", k->name + 6);
 
-                k = get_key (arr, s);
-                if (!k)
+                key = get_key (arr, s);
+                if (!key)
                 {
                     g_set_error (error, JT_ERROR, JT_ERROR_MISC,
                             "Syntax error in '%s': no matching '%s' for '%s'",
@@ -651,7 +652,7 @@ load_rules (const gchar *path, GError **error)
                     return NULL;
                 }
 
-                if (k->type != TYPE_MATCH)
+                if (key->type != TYPE_MATCH)
                 {
                     g_set_error (error, JT_ERROR, JT_ERROR_MISC,
                             "Syntax error in '%s': option '%s' with invalid type",
@@ -665,7 +666,7 @@ load_rules (const gchar *path, GError **error)
                     return NULL;
                 }
 
-                rule.trigger = g_strdup (k->value);
+                rule.trigger = g_strdup (key->value);
                 if ((k->name)[6] != '\0')
                     g_free (s);
                 s = filter = g_strdup (filter);
