@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.69])
-AC_INIT([journal-triggerd], [0.1.0], [jjk@jjacky.com])
+AC_INIT([journal-triggerd], [0.2.0], [jjk@jjacky.com])
 AC_CONFIG_SRCDIR([main.c])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_MACRO_DIR([m4])
