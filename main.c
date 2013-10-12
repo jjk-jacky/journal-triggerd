@@ -584,6 +584,7 @@ load_rules (const gchar *path, GError **error)
 
     while ((file = g_dir_read_name (dir)))
     {
+        GError *err = NULL;
         GPtrArray *ptrarr;
         GArray *arr;
         gboolean filter_done = FALSE;
@@ -595,26 +596,23 @@ load_rules (const gchar *path, GError **error)
             continue;
 
         strcpy (filename + len, file);
-        ptrarr = load_rule_file (filename, error);
+        ptrarr = load_rule_file (filename, &err);
         if (!ptrarr)
         {
-            g_free (filename);
-            g_array_unref (rules);
-            g_dir_close (dir);
-            return NULL;
+            fprintf (stderr, "Failed loading rule '%s': %s\n",
+                    filename, err->message);
+            g_clear_error (&err);
+            continue;
         }
 
         arr = get_section (ptrarr, "Rule");
         if (!arr)
         {
-            g_set_error (error, JT_ERROR, JT_ERROR_MISC,
-                    "Syntax error in '%s': Section 'Rule' missing",
+            fprintf (stderr, "Failed loading rule '%s': "
+                    "Syntax error: Section 'Rule' missing\n",
                     filename);
             free_ptrarr (ptrarr);
-            g_free (filename);
-            g_array_unref (rules);
-            g_dir_close (dir);
-            return NULL;
+            continue;
         }
 
         for (i = 0; i < arr->len; ++i)
@@ -640,47 +638,37 @@ load_rules (const gchar *path, GError **error)
                 key = get_key (arr, s);
                 if (!key)
                 {
-                    g_set_error (error, JT_ERROR, JT_ERROR_MISC,
-                            "Syntax error in '%s': no matching '%s' for '%s'",
+                    fprintf (stderr, "Failed loading rule '%s': "
+                            "Syntax error: no matching '%s' for '%s'\n",
                             filename, s, k->name);
                     if ((k->name)[6] != '\0')
                         g_free (s);
-                    free_ptrarr (ptrarr);
-                    g_free (filename);
-                    g_array_unref (rules);
-                    g_dir_close (dir);
-                    return NULL;
+                    break;
                 }
 
                 if (key->type != TYPE_MATCH)
                 {
-                    g_set_error (error, JT_ERROR, JT_ERROR_MISC,
-                            "Syntax error in '%s': option '%s' with invalid type",
+                    fprintf (stderr, "Failed loading rule '%s': "
+                            "Syntax error: option '%s' with invalid type\n",
                             filename, s);
                     if ((k->name)[6] != '\0')
                         g_free (s);
-                    free_ptrarr (ptrarr);
-                    g_free (filename);
-                    g_array_unref (rules);
-                    g_dir_close (dir);
-                    return NULL;
+                    break;
                 }
 
                 rule.trigger = g_strdup (key->value);
                 if ((k->name)[6] != '\0')
                     g_free (s);
                 s = filter = g_strdup (filter);
-                rule.element = parse_element (&ht, ptrarr, &s, error);
+                rule.element = parse_element (&ht, ptrarr, &s, &err);
                 if (!rule.element)
                 {
-                    g_prefix_error (error, "Error in '%s': ", filename);
+                    fprintf (stderr, "Failed loading rule '%s': %s\n",
+                            filename, err->message);
+                    g_clear_error (&err);
                     g_free (rule.trigger);
                     g_free (filter);
-                    free_ptrarr (ptrarr);
-                    g_free (filename);
-                    g_array_unref (rules);
-                    g_dir_close (dir);
-                    return NULL;
+                    break;
                 }
                 g_free (filter);
 
@@ -700,28 +688,22 @@ load_rules (const gchar *path, GError **error)
 
                     if (!get_section (ptrarr, "Filter"))
                     {
-                        g_set_error (error, JT_ERROR, JT_ERROR_MISC,
-                                "Missing section 'Filter' in '%s'",
+                        fprintf (stderr, "Failed loading rule '%s': "
+                                "Missing section 'Filter'\n",
                                 filename);
-                        free_ptrarr (ptrarr);
-                        g_free (filename);
-                        g_array_unref (rules);
-                        g_dir_close (dir);
-                        return NULL;
+                        break;
                     }
 
                     rule.trigger = g_strdup (s);
                     s = "Filter";
-                    rule.element = parse_element (&ht, ptrarr, &s, error);
+                    rule.element = parse_element (&ht, ptrarr, &s, &err);
                     if (!rule.element)
                     {
-                        g_prefix_error (error, "Error in '%s': ", filename);
+                        fprintf (stderr, "Failed loading rule '%s': %s\n",
+                                filename, err->message);
+                        g_clear_error (&err);
                         g_free (rule.trigger);
-                        free_ptrarr (ptrarr);
-                        g_free (filename);
-                        g_array_unref (rules);
-                        g_dir_close (dir);
-                        return NULL;
+                        break;
                     }
 
                     g_array_append_val (rules, rule);
@@ -729,14 +711,10 @@ load_rules (const gchar *path, GError **error)
             }
             else
             {
-                g_set_error (error, JT_ERROR, JT_ERROR_MISC,
-                        "Syntax error in '%s': Unknown option '%s' in 'Rule'",
+                fprintf (stderr, "Failed loading rule '%s': "
+                        "Syntax error: Unknown option '%s' in 'Rule'\n",
                         filename, k->name);
-                free_ptrarr (ptrarr);
-                g_free (filename);
-                g_array_unref (rules);
-                g_dir_close (dir);
-                return NULL;
+                break;
             }
         }
 
@@ -750,6 +728,14 @@ load_rules (const gchar *path, GError **error)
 
     g_free (filename);
     g_dir_close (dir);
+
+    if (rules->len == 0)
+    {
+        g_set_error (error, JT_ERROR, JT_ERROR_MISC,
+                "No (valid) rules found");
+        g_array_free (rules, TRUE);
+        return NULL;
+    }
     return (struct rule *) g_array_free (rules, FALSE);
 }
 
