@@ -41,9 +41,23 @@ You can use as variable any field from the journal, using B<$FIELD>. For
 example:
     trigger=echo $MESSAGE
 
-Note that this does not directly support shell command lines. If you need to use
-shell command lines, you need to explicitly call the shell implementation of
-your choice, e.g:
+To use a dollar sign, simply double it.
+
+Note that the value of the field as put as-is. You can also use a single quote
+between the dollar sign and the field name (B<$'FIELD>), to produce a
+shell-compatible escaped string of the field value.
+
+For example, if the field MESSAGE contains "this is 'foobar'" (without the
+double quotes) then using:
+    trigger=mail -s $'MESSAGE
+
+would result in the following command line to be executed:
+    mail -s 'this is '\''foobar'
+
+
+Also note that this trigger does not directly support shell command lines. If
+you need to use shell command lines, you need to explicitly call the shell
+implementation of your choice, e.g:
     trigger=sh -c 'echo Unit $_SYSTEMD_UNIT just failed >> /path/to/file'
 
 =head3 Filter

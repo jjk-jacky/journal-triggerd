@@ -934,6 +934,23 @@ exec_trigger (const gchar *trigger, GError **error)
         size_t len;
         gint i;
         gint r;
+        gint escape;
+
+        if (s[1] == '$')
+        {
+            g_string_append_len (str, trigger, s - trigger);
+            g_string_append_c (str, '$');
+            s += 2;
+            trigger = s;
+            continue;
+        }
+        else if (s[1] == '\'')
+        {
+            escape = 1;
+            ++s;
+        }
+        else
+            escape = 0;
 
         for (i = 1; i <= 128 && s[i] != '\0'; ++i)
         {
@@ -943,12 +960,24 @@ exec_trigger (const gchar *trigger, GError **error)
         }
         field[i - 1] = '\0';
 
-        g_string_append_len (str, trigger, s - trigger);
+        g_string_append_len (str, trigger, s - escape - trigger);
         r = get_journal_field (field, (gconstpointer *) &value, &len);
         if (r < 0)
         {
             if (-r != ENOENT)
                 g_string_append_printf (str, "Failed to get field '%s'", field);
+        }
+        else if (escape)
+        {
+            g_string_append_c (str, '\'');
+            for (i = 0; i < len; ++i)
+            {
+                if (value[i] == '\'')
+                    g_string_append (str, "'\\''");
+                else
+                    g_string_append_c (str, value[i]);
+            }
+            g_string_append_c (str, '\'');
         }
         else
             g_string_append_len (str, value, len);
