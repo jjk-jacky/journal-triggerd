@@ -588,6 +588,7 @@ load_rules (const gchar *path, GError **error)
         GPtrArray *ptrarr;
         GArray *arr;
         gboolean filter_done = FALSE;
+        gboolean is_empty = TRUE;
         size_t l;
         guint i;
 
@@ -643,6 +644,7 @@ load_rules (const gchar *path, GError **error)
                             filename, s, k->name);
                     if ((k->name)[6] != '\0')
                         g_free (s);
+                    is_empty = FALSE;
                     break;
                 }
 
@@ -653,6 +655,7 @@ load_rules (const gchar *path, GError **error)
                             filename, s);
                     if ((k->name)[6] != '\0')
                         g_free (s);
+                    is_empty = FALSE;
                     break;
                 }
 
@@ -668,11 +671,13 @@ load_rules (const gchar *path, GError **error)
                     g_clear_error (&err);
                     g_free (rule.trigger);
                     g_free (filter);
+                    is_empty = FALSE;
                     break;
                 }
                 g_free (filter);
 
                 g_array_append_val (rules, rule);
+                is_empty = FALSE;
 
                 if ((k->name)[6] == '\0')
                     filter_done = TRUE;
@@ -691,6 +696,7 @@ load_rules (const gchar *path, GError **error)
                         fprintf (stderr, "Failed loading rule '%s': "
                                 "Missing section 'Filter'\n",
                                 filename);
+                        is_empty = FALSE;
                         break;
                     }
 
@@ -703,10 +709,12 @@ load_rules (const gchar *path, GError **error)
                                 filename, err->message);
                         g_clear_error (&err);
                         g_free (rule.trigger);
+                        is_empty = FALSE;
                         break;
                     }
 
                     g_array_append_val (rules, rule);
+                    is_empty = FALSE;
                 }
             }
             else
@@ -714,9 +722,15 @@ load_rules (const gchar *path, GError **error)
                 fprintf (stderr, "Failed loading rule '%s': "
                         "Syntax error: Unknown option '%s' in 'Rule'\n",
                         filename, k->name);
+                is_empty = FALSE;
                 break;
             }
         }
+
+        if (is_empty)
+            fprintf (stderr, "Failed loading rule '%s': "
+                    "No rule defined (empty file?)\n",
+                    filename);
 
         free_ptrarr (ptrarr);
         if (ht)
