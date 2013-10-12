@@ -114,13 +114,51 @@ struct rule
     gchar *trigger;
 };
 
+enum
+{
+    LVL_ERROR   = -1,
+    LVL_QUIET   = 0,
+    LVL_NORMAL,
+    LVL_VERBOSE,
+    LVL_DEBUG
+};
+
 struct config
 {
     sd_journal *journal;
     struct rule *rules;
+    gint verbose;
 };
 
 static struct config *config = NULL;
+
+static void
+output (gint level, const gchar *fmt, ...)
+{
+    va_list va_args;
+    FILE *out = (level == LVL_ERROR) ? stderr : stdout;
+
+    if (level != LVL_ERROR && config->verbose < level)
+        return;
+
+    if (level >= LVL_DEBUG)
+    {
+        time_t now;
+        struct tm *ptr;
+        gchar buf[12];
+
+        now = time (NULL);
+        ptr = localtime (&now);
+        strftime (buf, 12, "[%H:%M:%S] ", ptr);
+        fputs (buf, out);
+    }
+
+    va_start (va_args, fmt);
+    vfprintf (out, fmt, va_args);
+    va_end (va_args);
+
+    fputc ('\n', out);
+}
 
 static void
 free_filter (struct filter *filter)
@@ -196,6 +234,7 @@ free_config (void)
 static void
 sig_handler (gint sig)
 {
+    output (LVL_DEBUG, "signal %d: exiting", sig);
     free_config ();
     exit (RC_SUCCESS);
 }
@@ -448,6 +487,8 @@ load_rule_file (const gchar *file, GError **error)
     guint ln = 0;
     gboolean in_section = FALSE;
 
+    output (LVL_DEBUG, "loading rule file '%s'", file);
+
     if (!g_file_get_contents (file, &data, NULL, error))
         return NULL;
 
@@ -566,6 +607,8 @@ load_rules (const gchar *path, GError **error)
     gchar *filename;
     gsize len;
 
+    output (LVL_DEBUG, "loading rules from '%s'", path);
+
     dir = g_dir_open (path, 0, error);
     if (!dir)
         return NULL;
@@ -600,7 +643,7 @@ load_rules (const gchar *path, GError **error)
         ptrarr = load_rule_file (filename, &err);
         if (!ptrarr)
         {
-            fprintf (stderr, "Failed loading rule '%s': %s\n",
+            output (LVL_ERROR, "Failed loading rule '%s': %s",
                     filename, err->message);
             g_clear_error (&err);
             continue;
@@ -609,8 +652,8 @@ load_rules (const gchar *path, GError **error)
         arr = get_section (ptrarr, "Rule");
         if (!arr)
         {
-            fprintf (stderr, "Failed loading rule '%s': "
-                    "Syntax error: Section 'Rule' missing\n",
+            output (LVL_ERROR, "Failed loading rule '%s': "
+                    "Syntax error: Section 'Rule' missing",
                     filename);
             free_ptrarr (ptrarr);
             continue;
@@ -639,8 +682,8 @@ load_rules (const gchar *path, GError **error)
                 key = get_key (arr, s);
                 if (!key)
                 {
-                    fprintf (stderr, "Failed loading rule '%s': "
-                            "Syntax error: no matching '%s' for '%s'\n",
+                    output (LVL_ERROR, "Failed loading rule '%s': "
+                            "Syntax error: no matching '%s' for '%s'",
                             filename, s, k->name);
                     if ((k->name)[6] != '\0')
                         g_free (s);
@@ -650,8 +693,8 @@ load_rules (const gchar *path, GError **error)
 
                 if (key->type != TYPE_MATCH)
                 {
-                    fprintf (stderr, "Failed loading rule '%s': "
-                            "Syntax error: option '%s' with invalid type\n",
+                    output (LVL_ERROR, "Failed loading rule '%s': "
+                            "Syntax error: option '%s' with invalid type",
                             filename, s);
                     if ((k->name)[6] != '\0')
                         g_free (s);
@@ -666,7 +709,7 @@ load_rules (const gchar *path, GError **error)
                 rule.element = parse_element (&ht, ptrarr, &s, &err);
                 if (!rule.element)
                 {
-                    fprintf (stderr, "Failed loading rule '%s': %s\n",
+                    output (LVL_ERROR, "Failed loading rule '%s': %s",
                             filename, err->message);
                     g_clear_error (&err);
                     g_free (rule.trigger);
@@ -693,8 +736,8 @@ load_rules (const gchar *path, GError **error)
 
                     if (!get_section (ptrarr, "Filter"))
                     {
-                        fprintf (stderr, "Failed loading rule '%s': "
-                                "Missing section 'Filter'\n",
+                        output (LVL_ERROR, "Failed loading rule '%s': "
+                                "Missing section 'Filter'",
                                 filename);
                         is_empty = FALSE;
                         break;
@@ -705,7 +748,7 @@ load_rules (const gchar *path, GError **error)
                     rule.element = parse_element (&ht, ptrarr, &s, &err);
                     if (!rule.element)
                     {
-                        fprintf (stderr, "Failed loading rule '%s': %s\n",
+                        output (LVL_ERROR, "Failed loading rule '%s': %s",
                                 filename, err->message);
                         g_clear_error (&err);
                         g_free (rule.trigger);
@@ -719,8 +762,8 @@ load_rules (const gchar *path, GError **error)
             }
             else
             {
-                fprintf (stderr, "Failed loading rule '%s': "
-                        "Syntax error: Unknown option '%s' in 'Rule'\n",
+                output (LVL_ERROR, "Failed loading rule '%s': "
+                        "Syntax error: Unknown option '%s' in 'Rule'",
                         filename, k->name);
                 is_empty = FALSE;
                 break;
@@ -728,8 +771,8 @@ load_rules (const gchar *path, GError **error)
         }
 
         if (is_empty)
-            fprintf (stderr, "Failed loading rule '%s': "
-                    "No rule defined (empty file?)\n",
+            output (LVL_ERROR, "Failed loading rule '%s': "
+                    "No rule defined",
                     filename);
 
         free_ptrarr (ptrarr);
@@ -750,6 +793,11 @@ load_rules (const gchar *path, GError **error)
         g_array_free (rules, TRUE);
         return NULL;
     }
+
+    output (LVL_NORMAL, "Loaded: %d %s",
+            rules->len,
+            (rules->len == 1) ? "rule" : "rules");
+
     return (struct rule *) g_array_free (rules, FALSE);
 }
 
@@ -873,6 +921,8 @@ exec_trigger (const gchar *trigger, GError **error)
     gchar *s;
     gboolean ret;
 
+    output (LVL_DEBUG, "executing trigger: %s", trigger);
+
     s = strchr (trigger, '$');
     if (s)
         str = g_string_new (NULL);
@@ -910,13 +960,27 @@ exec_trigger (const gchar *trigger, GError **error)
     if (str)
     {
         g_string_append_len (str, trigger, s - trigger);
+        output (LVL_VERBOSE, "Run trigger: %s", str->str);
         ret = g_spawn_command_line_async (str->str, error);
         g_string_free (str, TRUE);
     }
     else
+    {
+        output (LVL_VERBOSE, "Run trigger: %s", trigger);
         ret = g_spawn_command_line_async (trigger, error);
+    }
 
     return ret;
+}
+
+static gboolean
+opt_verbose_cb (const gchar *option, const gchar *value, gpointer data, GError **error)
+{
+    if (streq (option, "-v") || streq (option, "--verbose"))
+        ++config->verbose;
+    else
+        config->verbose = LVL_QUIET;
+    return TRUE;
 }
 
 static gboolean
@@ -926,7 +990,11 @@ parse_args (gint argc, gchar *argv[], GError **error)
 
     GOptionContext *context;
     GOptionEntry entries[] = {
-        { "version",    'V', 0, G_OPTION_ARG_NONE,  &version,
+        { "verbose",    'v', G_OPTION_FLAG_NO_ARG, G_OPTION_ARG_CALLBACK, opt_verbose_cb,
+            "Verbose output. Set twice for debug verbosity.", NULL },
+        { "quiet",      'q', G_OPTION_FLAG_NO_ARG, G_OPTION_ARG_CALLBACK, opt_verbose_cb,
+            "Quiet mode, no output.", NULL },
+        { "version",    'V', 0, G_OPTION_ARG_NONE,      &version,
             "Show version information", NULL },
         { NULL }
     };
@@ -967,31 +1035,33 @@ main (gint argc, gchar *argv[])
     r = sigaction (SIGINT, &act, NULL);
     if (r < 0)
     {
-        fprintf (stderr, "Failed to install signal handler: %s\n",
+        output (LVL_ERROR, "Failed to install signal handler: %s",
                 strerror (errno));
         return RC_OTHER;
     }
     r = sigaction (SIGTERM, &act, NULL);
     if (r < 0)
     {
-        fprintf (stderr, "Failed to install signal handler: %s\n",
+        output (LVL_ERROR, "Failed to install signal handler: %s",
                 strerror (errno));
         return RC_OTHER;
     }
 
+    config = g_new0 (struct config, 1);
+    config->verbose = LVL_NORMAL;
+
     if (argc > 1 && !parse_args (argc, argv, &err))
     {
-        fprintf (stderr, "Option parsing failed: %s\n", err->message);
+        output (LVL_ERROR, "Option parsing failed: %s", err->message);
         g_clear_error (&err);
         return RC_ARGS;
     }
 
-    config = g_new0 (struct config, 1);
     config->rules = load_rules (RULES_PATH, &err);
     if (!config->rules)
     {
         g_free (config);
-        fprintf (stderr, "Failed to load rules: %s\n", err->message);
+        output (LVL_ERROR, "Failed to load rules: %s", err->message);
         g_clear_error (&err);
         return RC_RULES;
     }
@@ -999,7 +1069,7 @@ main (gint argc, gchar *argv[])
     r = sd_journal_open (&config->journal, SD_JOURNAL_LOCAL_ONLY);
     if (r < 0)
     {
-        fprintf (stderr, "Failed to open journal: %s\n",
+        output (LVL_ERROR, "Failed to open journal: %s",
                 strerror (-r));
         return RC_JOURNAL_OPEN;
     }
@@ -1007,7 +1077,7 @@ main (gint argc, gchar *argv[])
     r = sd_journal_seek_tail (config->journal);
     if (r < 0)
     {
-        fprintf (stderr, "Failed to get to the journal's tail: %s\n",
+        output (LVL_ERROR, "Failed to get to the journal's tail: %s",
                 strerror (-r));
         rc = RC_JOURNAL_MOVE;
         goto finish;
@@ -1016,7 +1086,7 @@ main (gint argc, gchar *argv[])
     r = sd_journal_previous (config->journal);
     if (r < 0)
     {
-        fprintf (stderr, "Failed to iterate to journal last entry: %s\n",
+        output (LVL_ERROR, "Failed to iterate to journal last entry: %s",
                 strerror (-r));
         rc = RC_JOURNAL_MOVE;
         goto finish;
@@ -1029,7 +1099,7 @@ main (gint argc, gchar *argv[])
         r = sd_journal_next (config->journal);
         if (r < 0)
         {
-            fprintf (stderr, "Failed to iterate to next journal entry: %s\n",
+            output (LVL_ERROR, "Failed to iterate to next journal entry: %s",
                     strerror (-r));
             rc = RC_JOURNAL_MOVE;
             break;
@@ -1038,10 +1108,11 @@ main (gint argc, gchar *argv[])
         if (r == 0)
         {
             /* end of journal, let's wait for changes */
+            output (LVL_DEBUG, "no more entries in journal, waiting for changes");
             r = sd_journal_wait (config->journal, (uint64_t) -1);
             if (r < 0)
             {
-                fprintf (stderr, "Failed to wait for journal changes: %s\n",
+                output (LVL_ERROR, "Failed to wait for journal changes: %s",
                         strerror (-r));
                 rc = RC_JOURNAL_WAIT;
                 break;
@@ -1055,7 +1126,7 @@ main (gint argc, gchar *argv[])
             {
                 if (!exec_trigger (rule->trigger, &err))
                 {
-                    fprintf (stderr, "Failed to execute trigger '%s': %s\n",
+                    output (LVL_ERROR, "Failed to execute trigger '%s': %s",
                             rule->trigger,
                             (err) ? err->message : "(no error message)");
                     g_clear_error (&err);
@@ -1063,7 +1134,7 @@ main (gint argc, gchar *argv[])
             }
             else if (err)
             {
-                fprintf (stderr, "Error occured while processing a rule: %s\n",
+                output (LVL_ERROR, "Error occured while processing a rule: %s",
                         err->message);
                 g_clear_error (&err);
             }
