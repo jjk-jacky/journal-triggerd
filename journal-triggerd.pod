@@ -33,7 +33,20 @@ journal, and a trigger, to be run when match occurs.
 Rule files have a syntax similar to that of conf/INI files, or systemd's unit
 files. A section [Rule] must exist, where filter/trigger be defined.
 
+=head3 Trigger
+
 The trigger is simply a command line, define under option I<trigger>
+
+You can use as variable any field from the journal, using B<$FIELD>. For
+example:
+    trigger=echo $MESSAGE
+
+Note that this does not directly support shell command lines. If you need to use
+shell command lines, you need to explicitly call the shell implementation of
+your choice, e.g:
+    trigger=sh -c 'echo Unit $_SYSTEMD_UNIT just failed >> /path/to/file'
+
+=head3 Filter
 
 A filter can be either a list of conditions to match, or use boolean logic to
 create more complex filtering. For the former, no option under [Rule] is needed,
@@ -77,6 +90,9 @@ The heart of a filter is a group of conditions, defined simply as a section in
 the rule file. All conditions are simply the name of a field from the journal,
 an optional comparison operator before the required equal sign ('='), and the
 value to compare with.
+
+For a list of special fields and their meaning, refer to
+L<systemd.journal-fields(7)>
 
 The supported operators are :
 
