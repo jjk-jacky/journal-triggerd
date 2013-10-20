@@ -52,6 +52,7 @@ if [ -e $LOG ]; then
     rm "$LOG"
 fi
 
+run "mkdir build-aux"
 run "aclocal -I m4"
 run "autoheader"
 run "autoconf"
