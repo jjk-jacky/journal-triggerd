@@ -40,8 +40,12 @@ AC_ARG_ENABLE([warning-flags],
                               [warningflags=$enableval], [warningflags=no])
 
 # Checks for libraries.
-PKG_CHECK_MODULES(JOURNAL, [libsystemd-journal], ,
-                  AC_MSG_ERROR([libsystemd-journal is required]))
+PKG_CHECK_EXISTS(libsystemd-journal,
+                 LIBJOURNAL=libsystemd-journal,
+                 LIBJOURNAL="libsystemd >= 230")
+PKG_CHECK_MODULES(JOURNAL, $LIBJOURNAL, ,
+                  AC_MSG_ERROR([libsystemd-journal or
+                                libsystemd 230+ is required]))
 PKG_CHECK_MODULES(GLIB2, [glib-2.0], ,
                   AC_MSG_ERROR([glib2 is required]))
 
