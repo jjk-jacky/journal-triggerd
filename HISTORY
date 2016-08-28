@@ -1,4 +1,13 @@
 
+# 2016-08-28, v0.2.1
+
+- configure.ac: Fix libsystemd-journal merged in libsystemd
+Since systemd-230 libsystemd-journal doesn't exist anymore, as it's all been
+merged into libsystemd.
+
+- autogen: Fix failure on non-existing build-aux; Fixes #2
+
+
 # 2013-10-12, v0.2.0
 
 - Fix possible segfault loading rules; Fixes #1
