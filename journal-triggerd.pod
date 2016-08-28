@@ -67,9 +67,9 @@ create more complex filtering. For the former, no option under [Rule] is needed,
 simply create a section [Filter] and define the conditions there; See
 L<CONDITIONS> below for more.
 
-To create more complex filters, an option I<filer> can be set under [Rule] and
-must be an expression that can make use of parenthesis, B<AND>, B<OR> and B<NOT>
-as well as named filters/groups.
+To create more complex filters, an option I<filter> can be set under [Rule]
+before option I<trigger> and must be an expression that can make use of
+parenthesis, B<AND>, B<OR> and B<NOT> as well as named filters/groups.
 
 Those names are case-sensitive names of sections that must exist in the file,
 where a list of conditions will be defined.
@@ -120,7 +120,7 @@ The field must be of the specified value.
 
 You can use '*' and '?' wildcards with similar semantics as the standard glob(3)
 functions: '*' matches an arbitrary, possibly empty, string, '?' matches an
-arbitrary character.
+arbitrary, non empty, character.
 
 Note that in contrast to glob(), the '/' character can be matched by the
 wildcards, there are no '[...]' character ranges and '*' and '?' can not be
