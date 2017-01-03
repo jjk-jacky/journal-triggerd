@@ -23,7 +23,7 @@ AC_ARG_WITH([rulesdir],
 
 # service file location
 AC_ARG_WITH([servicedir],
-            AC_HELP_STRING([--with-systemd-servicedir=DIR], [Directory for .service file]),
+            AC_HELP_STRING([--with-servicedir=DIR], [Directory for .service file]),
             [],
             [with_servicedir=/usr/lib/systemd/system])
 
