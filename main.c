@@ -556,6 +556,10 @@ load_rule_file (const gchar *file, GError **error)
             return NULL;
         }
 
+        /* because TYPE_MATCH is also '=' and strchr() would find the first one */
+        if (s[1] == '=')
+            ++s;
+
         key.value = s;
         switch (s[-1])
         {
