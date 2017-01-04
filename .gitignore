@@ -19,5 +19,6 @@ configure
 libtool
 journal-triggerd
 journal-triggerd.1
+journal-triggerd.service
 index.html
 stamp-h1

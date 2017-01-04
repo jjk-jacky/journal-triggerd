@@ -1,5 +1,6 @@
 DISTCLEANFILES = \
 	journal-triggerd.1 \
+	journal-triggerd.service \
 	index.html
 
 ACLOCAL_AMFLAGS = -I m4
@@ -34,10 +35,11 @@ dist_doc_DATA = index.html \
 				COPYING \
 				README.md
 
-dist_service_DATA = journal-triggerd.service
+service_DATA = journal-triggerd.service
 
 EXTRA_DIST = \
-	journal-triggerd.pod
+	journal-triggerd.pod \
+	journal-triggerd.service.in
 
 journal-triggerd.1: journal-triggerd.pod
 	$(AM_V_GEN)pod2man --center='Runs trigger on journal messages' --section=1 \
@@ -50,3 +52,10 @@ install-data-hook:
 	$(MKDIR_P) "$(DESTDIR)$(docdir)/html"
 	mv "$(DESTDIR)$(docdir)/index.html" "$(DESTDIR)$(docdir)/html/"
 	$(MKDIR_P) "$(DESTDIR)$(rulesdir)"
+
+journal-triggerd.service: $(srcdir)/journal-triggerd.service.in Makefile
+	rm -f $@ $@.tmp
+	srcdir=''; \
+		test -f ./$@.in || srcdir=$(srcdir)/; \
+		sed -e 's|@bindir[@]|$(bindir)|g' $${srcdir}$@.in >$@.tmp
+	mv $@.tmp $@
