@@ -27,7 +27,7 @@
 
 LOG=autogen.log
 
-function abort()
+abort()
 {
     echo "An error occured, the output below can be found in $LOG"
     echo "-------"
@@ -35,7 +35,7 @@ function abort()
     exit 1
 }
 
-function run()
+run()
 {
     echo -n "Running \"$@\" ... "
     echo "$ $@" >>$LOG
