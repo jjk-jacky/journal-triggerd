@@ -43,22 +43,23 @@ example:
 
 To use a dollar sign, simply double it.
 
-Note that the value of the field as put as-is. You can also use a single quote
-between the dollar sign and the field name (B<$'FIELD>), to produce a
-shell-compatible escaped string of the field value.
+Note that the value of the field as put as-is.
 
-For example, if the field MESSAGE contains "this is 'foobar'" (without the
-double quotes) then using:
-    trigger=mail -s $'MESSAGE
-
-would result in the following command line to be executed:
-    mail -s 'this is '\''foobar'
+Before version 0.3.0 it was possible to use the B<$'FIELD> notation to produce
+a shell-compatible escaped string of the field value. This has been removed and
+isn't supported anymore, as field values are now always replaced as-in B<after>
+the trigger was parsed for execution/splitted into an argv, avoiding any
+possible splitting issue.
 
 
-Also note that this trigger does not directly support shell command lines. If
+Also note that the trigger does not directly support shell command lines. If
 you need to use shell command lines, you need to explicitly call the shell
 implementation of your choice, e.g:
     trigger=sh -c 'echo Unit $_SYSTEMD_UNIT just failed >> /path/to/file'
+
+However, be aware that your shell will be parsing the command-line, and if the
+value of a field contained special characters this could cause issues. (Using a
+script might be a way around it.)
 
 =head3 Filter
 

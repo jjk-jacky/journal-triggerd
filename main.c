@@ -918,43 +918,33 @@ is_matching (struct element *element, GError **error)
     return match;
 }
 
-static gboolean
-exec_trigger (const gchar *trigger, GError **error)
+static gchar *
+parse_arg (const gchar *arg)
 {
-    GString *str = NULL;
+    GString *str;
     gchar *s;
-    gboolean ret;
 
-    output (LVL_DEBUG, "executing trigger: %s", trigger);
+    str = g_string_new (NULL);
 
-    s = strchr (trigger, '$');
-    if (s)
-        str = g_string_new (NULL);
-
-    for ( ; s; s = strchr (s, '$'))
+    for (;;)
     {
         gchar field[128];
         const gchar *value;
         size_t len;
         gint i;
-        gint r;
-        gint escape;
+        int r;
+
+        s = strchr (arg, '$');
+        if (!s)
+            break;
+        g_string_append_len (str, arg, s - arg);
 
         if (s[1] == '$')
         {
-            g_string_append_len (str, trigger, s - trigger);
             g_string_append_c (str, '$');
-            s += 2;
-            trigger = s;
+            arg = s + 2;
             continue;
         }
-        else if (s[1] == '\'')
-        {
-            escape = 1;
-            ++s;
-        }
-        else
-            escape = 0;
 
         for (i = 1; i <= 128 && s[i] != '\0'; ++i)
         {
@@ -964,46 +954,56 @@ exec_trigger (const gchar *trigger, GError **error)
         }
         field[i - 1] = '\0';
 
-        g_string_append_len (str, trigger, s - escape - trigger);
         r = get_journal_field (field, (gconstpointer *) &value, &len);
         if (r < 0)
         {
             if (-r != ENOENT)
                 g_string_append_printf (str, "Failed to get field '%s'", field);
         }
-        else if (escape)
-        {
-            gint j;
-
-            g_string_append_c (str, '\'');
-            for (j = 0; j < len; ++j)
-            {
-                if (value[j] == '\'')
-                    g_string_append (str, "'\\''");
-                else
-                    g_string_append_c (str, value[j]);
-            }
-            g_string_append_c (str, '\'');
-        }
         else
             g_string_append_len (str, value, len);
 
-        s += i;
-        trigger = s;
+        arg = s + i;
+    }
+    g_string_append (str, arg);
+
+    return g_string_free (str, FALSE);
+}
+
+static gboolean
+exec_trigger (const gchar *trigger, GError **error)
+{
+    gchar **argv = NULL, **as;
+    gboolean ret;
+
+    output (LVL_DEBUG, "executing trigger: %s", trigger);
+
+    if (!g_shell_parse_argv (trigger, NULL, &argv, error))
+        return FALSE;
+
+    for (as = argv; *as; ++as)
+    {
+        gchar *new_arg;
+
+        if (!strchr (*as, '$'))
+            continue;
+
+        new_arg = parse_arg (*as);
+        g_free (*as);
+        *as = new_arg;
     }
 
-    if (str)
+    if (config->verbose >= LVL_VERBOSE)
     {
-        g_string_append_len (str, trigger, s - trigger);
-        output (LVL_VERBOSE, "Run trigger: %s", str->str);
-        ret = g_spawn_command_line_async (str->str, error);
-        g_string_free (str, TRUE);
+        gchar *s;
+
+        s = g_strjoinv (" ", argv);
+        output (LVL_VERBOSE, "Run trigger: %s", s);
+        g_free (s);
     }
-    else
-    {
-        output (LVL_VERBOSE, "Run trigger: %s", trigger);
-        ret = g_spawn_command_line_async (trigger, error);
-    }
+
+    ret = g_spawn_async (NULL, argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, error);
+    g_strfreev (argv);
 
     return ret;
 }
