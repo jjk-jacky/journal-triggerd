@@ -973,13 +973,15 @@ exec_trigger (const gchar *trigger, GError **error)
         }
         else if (escape)
         {
+            gint j;
+
             g_string_append_c (str, '\'');
-            for (i = 0; i < len; ++i)
+            for (j = 0; j < len; ++j)
             {
-                if (value[i] == '\'')
+                if (value[j] == '\'')
                     g_string_append (str, "'\\''");
                 else
-                    g_string_append_c (str, value[i]);
+                    g_string_append_c (str, value[j]);
             }
             g_string_append_c (str, '\'');
         }
